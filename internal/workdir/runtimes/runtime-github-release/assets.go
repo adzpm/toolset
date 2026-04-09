@@ -82,6 +82,11 @@ func autoDiscoverAsset(assets []*github.ReleaseAsset, toolName, version, goos, g
 			regexp.QuoteMeta(toolName),
 			strings.Join(osNames, "|"),
 			strings.Join(archNames, "|")),
+		// Pattern 5: toolname_darwin_arm64
+		fmt.Sprintf(`(?i)^%s[-_](%s)[-_](%s)$`,
+			regexp.QuoteMeta(toolName),
+			strings.Join(osNames, "|"),
+			strings.Join(archNames, "|")),
 	}
 
 	for _, pattern := range patterns {

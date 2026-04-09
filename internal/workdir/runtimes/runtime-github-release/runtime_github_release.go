@@ -114,7 +114,7 @@ func (r *Runtime) Install(ctx context.Context, program string) error {
 		return fmt.Errorf("download asset: %w", err)
 	}
 
-	if err := archive.Extract(r.fs, tmpFile, tmpDirUnarchived); err != nil {
+	if err := archive.Extract(r.fs, tmpFile, tmpDirUnarchived, repo); err != nil {
 		return fmt.Errorf("extract release file: %w", err)
 	}
 
