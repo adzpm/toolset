@@ -54,6 +54,11 @@ func autoDiscoverAsset(assets []*github.ReleaseAsset, toolName, version, goos, g
 		"arm":   {"armv6", "armv7", "arm", "ARM"},
 	}[goarch]
 
+	if goos == "darwin" {
+		// xxx_darwin_all for multi-platform binaries
+		archNames = append([]string{"all"}, archNames...)
+	}
+
 	if len(osNames) == 0 || len(archNames) == 0 {
 		return nil, fmt.Errorf("unsupported local platform (%s/%s)", goos, goarch)
 	}
