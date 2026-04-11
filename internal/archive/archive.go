@@ -14,7 +14,7 @@ import (
 	"github.com/ulikunitz/xz"
 )
 
-func Extract(fs fsh.FS, archivePath, destDir string) error {
+func Extract(fs fsh.FS, archivePath, destDir, binaryName string) error {
 	f, err := fs.Open(archivePath)
 	if err != nil {
 		return err
@@ -32,9 +32,35 @@ func Extract(fs fsh.FS, archivePath, destDir string) error {
 		return extractTar(fs, f, destDir, func(r io.Reader) (io.Reader, error) { return bzip2.NewReader(r), nil })
 	case ".tar.xz":
 		return extractTar(fs, f, destDir, func(r io.Reader) (io.Reader, error) { return xz.NewReader(r) })
+	case "":
+		return extractFile(fs, f, destDir, archivePath, binaryName)
 	}
 
 	return fmt.Errorf("unsupported archive type (%s)", ext)
+}
+
+func extractFile(fs fsh.FS, f afero.File, dest, archivePath, binaryName string) error {
+	if err := fs.MkdirAll(dest, 0o755); err != nil {
+		return err
+	}
+
+	target := filepath.Join(dest, binaryName)
+	out, err := fs.Create(target)
+	if err != nil {
+		return err
+	}
+	defer out.Close() //nolint:errcheck
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return err
+	}
+
+	if _, err = out.Write(data); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func extractZip(fs fsh.FS, f afero.File, dest string) error {

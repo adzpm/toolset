@@ -54,6 +54,11 @@ func autoDiscoverAsset(assets []*github.ReleaseAsset, toolName, version, goos, g
 		"arm":   {"armv6", "armv7", "arm", "ARM"},
 	}[goarch]
 
+	if goos == "darwin" {
+		// xxx_darwin_all for multi-platform binaries
+		archNames = append([]string{"all"}, archNames...)
+	}
+
 	if len(osNames) == 0 || len(archNames) == 0 {
 		return nil, fmt.Errorf("unsupported local platform (%s/%s)", goos, goarch)
 	}
@@ -79,6 +84,11 @@ func autoDiscoverAsset(assets []*github.ReleaseAsset, toolName, version, goos, g
 			strings.Join(archNames, "|")),
 		// Pattern 4: toolname_darwin_arm64.tar.gz (underscores, no version)
 		fmt.Sprintf(`(?i)^%s[_](%s)[_](%s)(\.tar\.gz|\.zip|\.tgz|\.tar\.bz2)$`,
+			regexp.QuoteMeta(toolName),
+			strings.Join(osNames, "|"),
+			strings.Join(archNames, "|")),
+		// Pattern 5: toolname_darwin_arm64
+		fmt.Sprintf(`(?i)^%s[-_](%s)[-_](%s)$`,
 			regexp.QuoteMeta(toolName),
 			strings.Join(osNames, "|"),
 			strings.Join(archNames, "|")),
