@@ -178,7 +178,7 @@ func (c *Workdir) AddInclude(ctx context.Context, source string, tags []string) 
 	return count, nil
 }
 
-func (c *Workdir) Add(ctx context.Context, runtime, program string, alias optional.Val[string], tags []string) (bool, string, error) {
+func (c *Workdir) Add(ctx context.Context, runtime, program string, alias optional.Val[string], tags []string, pin bool) (bool, string, error) {
 	rt, err := c.runtimes.GetInstall(ctx, runtime)
 	if err != nil {
 		return false, "", fmt.Errorf("get runtime: %w", err)
@@ -195,6 +195,19 @@ func (c *Workdir) Add(ctx context.Context, runtime, program string, alias option
 		Alias:   alias,
 		Tags:    tags,
 	}
+
+	if pin {
+		p, err := rt.GetPin(ctx, program)
+		if err != nil {
+			return false, "", fmt.Errorf("get pin: %w", err)
+		}
+		tool.Pin = p
+		// Use UpsertTool so that re-pinning an existing tool updates the pin.
+		c.spec.Tools.UpsertTool(tool)
+		c.lock.FromSpec(c.spec)
+		return true, program, nil
+	}
+
 	wasAdded := c.spec.Tools.Add(tool)
 	if wasAdded {
 		c.lock.FromSpec(c.spec)
@@ -204,7 +217,7 @@ func (c *Workdir) Add(ctx context.Context, runtime, program string, alias option
 }
 
 // Ensure will 'upsert' the tool. It removes current version of mentioned tool and install the specific one.
-func (c *Workdir) Ensure(ctx context.Context, runtime, program string, alias optional.Val[string], tags []string) (string, error) {
+func (c *Workdir) Ensure(ctx context.Context, runtime, program string, alias optional.Val[string], tags []string, pin bool) (string, error) {
 	rt, err := c.runtimes.GetInstall(ctx, runtime)
 	if err != nil {
 		return "", fmt.Errorf("get runtime: %w", err)
@@ -221,6 +234,15 @@ func (c *Workdir) Ensure(ctx context.Context, runtime, program string, alias opt
 		Alias:   alias,
 		Tags:    tags,
 	}
+
+	if pin {
+		p, err := rt.GetPin(ctx, program)
+		if err != nil {
+			return "", fmt.Errorf("get pin: %w", err)
+		}
+		tool.Pin = p
+	}
+
 	c.spec.Tools.UpsertTool(tool)
 	c.lock.FromSpec(c.spec)
 
@@ -309,7 +331,7 @@ RunProgram:
 	if err := rt.Run(ctx, ts.Tool.Module, args...); err != nil {
 		if errors.Is(err, structs.ErrToolNotInstalled) {
 			if autoInstallProgram {
-				if err := rt.Install(ctx, ts.Tool.Module); err != nil {
+				if err := rt.Install(ctx, ts.Tool.Module, ts.Tool.Pin); err != nil {
 					return fmt.Errorf("auto-install not-installed program (%s) before run: %w", ts.Tool.Module, err)
 				}
 
@@ -362,7 +384,7 @@ func (c *Workdir) Sync(ctx context.Context, maxWorkers int, tags []string) error
 		go func() {
 			defer sem.Release(1)
 
-			if err := rt.Install(ctx, tool.Module); err != nil {
+			if err := rt.Install(ctx, tool.Module, tool.Pin); err != nil {
 				errs <- fmt.Errorf("install tool (%s): %w", tool.Module, err)
 				return
 			}
@@ -412,7 +434,7 @@ func (c *Workdir) Sync(ctx context.Context, maxWorkers int, tags []string) error
 }
 
 // Upgrade will upgrade only spec tools. and re-fetch latest versions of includes.
-func (c *Workdir) Upgrade(ctx context.Context, filter func(structs.Tool) bool) error {
+func (c *Workdir) Upgrade(ctx context.Context, filter func(structs.Tool) bool, pin bool) error {
 	targetTools := make([]structs.Tool, 0, len(c.spec.Tools))
 	for _, tool := range c.spec.Tools {
 		if !filter(tool) {
@@ -447,6 +469,15 @@ func (c *Workdir) Upgrade(ctx context.Context, filter func(structs.Tool) bool) e
 		fmt.Println(">>> Upgrade to:", module)
 
 		tool.Module = module
+		tool.Pin = optional.Empty[structs.Pin]() // pins are version-specific; clear first
+
+		if pin {
+			p, err := rt.GetPin(ctx, module)
+			if err != nil {
+				return fmt.Errorf("get pin for upgraded %s: %w", module, err)
+			}
+			tool.Pin = p
+		}
 
 		c.spec.Tools.UpsertTool(tool)
 		c.lock.Tools.UpsertTool(tool)

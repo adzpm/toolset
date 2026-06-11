@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v75/github"
+	"github.com/kazhuravlev/optional"
 	"github.com/kazhuravlev/toolset/internal/archive"
 	"github.com/kazhuravlev/toolset/internal/fsh"
 	"github.com/kazhuravlev/toolset/internal/workdir/structs"
@@ -73,7 +74,7 @@ func (r *Runtime) GetModule(ctx context.Context, module string) (*structs.Module
 	}, nil
 }
 
-func (r *Runtime) Install(ctx context.Context, program string) error {
+func (r *Runtime) Install(ctx context.Context, program string, pin optional.Val[structs.Pin]) error {
 	mod, err := r.GetModule(ctx, program)
 	if err != nil {
 		return fmt.Errorf("get go module (%s): %w", program, err)
@@ -112,6 +113,26 @@ func (r *Runtime) Install(ctx context.Context, program string) error {
 
 	if err := r.downloadAsset(ctx, owner, repo, *asset.ID, tmpFile); err != nil {
 		return fmt.Errorf("download asset: %w", err)
+	}
+
+	// Supply-chain verification: compare SHA256 of downloaded archive against pinned digest.
+	if pin.HasVal() {
+		pinnedAsset, ok := findPinnedAsset(pin.Val().Assets, r.os, r.arch)
+		if !ok {
+			return fmt.Errorf("pin has no entry for platform %s/%s — re-run `toolset add --pin`", r.os, r.arch)
+		}
+
+		computed, err := computeSHA256(tmpFile)
+		if err != nil {
+			return fmt.Errorf("compute SHA256 of downloaded archive: %w", err)
+		}
+
+		// Pinned digest is "sha256:<hex>"; computed is bare hex.
+		pinnedHex := strings.ToLower(strings.TrimPrefix(pinnedAsset.Digest, "sha256:"))
+		if computed != pinnedHex {
+			return fmt.Errorf("SHA256 mismatch for %s:\n  pinned:  %s\n  current: %s",
+				program, pinnedHex, computed)
+		}
 	}
 
 	if err := archive.Extract(r.fs, tmpFile, tmpDirUnarchived, repo); err != nil {

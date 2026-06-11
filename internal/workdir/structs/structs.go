@@ -15,6 +15,23 @@ import (
 
 var ErrToolNotInstalled = errors.New("tool not installed")
 
+// PinnedAsset holds the expected SHA256 digest for a single platform binary archive.
+type PinnedAsset struct {
+	OS     string `json:"os"`
+	Arch   string `json:"arch"`
+	Name   string `json:"name"`
+	Digest string `json:"digest"` // "sha256:<hex64>" from asset.GetDigest()
+}
+
+// Pin holds the supply-chain verification data for a tool.
+// Exactly one field is populated per runtime:
+//   - go-runtime  → CommitHash (from proxy.golang.org Origin.Hash)
+//   - gh-runtime  → Assets (per-platform SHA256 archive digests)
+type Pin struct {
+	CommitHash string        `json:"commit_hash,omitempty"`
+	Assets     []PinnedAsset `json:"assets,omitempty"`
+}
+
 type RunError struct {
 	ExitCode int
 }
@@ -29,6 +46,8 @@ type Tool struct {
 	// Alias create a link in tools. Works like exposing some tools
 	Alias optional.Val[string] `json:"alias"`
 	Tags  []string             `json:"tags"`
+	// Pin holds supply-chain verification data. Empty for unpinned tools.
+	Pin optional.Val[Pin] `json:"pin"`
 }
 
 func (t Tool) ID() string {

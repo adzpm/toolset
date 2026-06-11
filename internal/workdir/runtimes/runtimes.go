@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kazhuravlev/optional"
 	runtimegh "github.com/kazhuravlev/toolset/internal/workdir/runtimes/runtime-github-release"
 	runtimego "github.com/kazhuravlev/toolset/internal/workdir/runtimes/runtime-go"
 
@@ -30,8 +31,11 @@ type IRuntime interface {
 	Parse(ctx context.Context, str string) (string, error)
 	// GetModule returns an information about module (parsed module).
 	GetModule(ctx context.Context, program string) (*structs.ModuleInfo, error)
-	// Install will install the program.
-	Install(ctx context.Context, program string) error
+	// GetPin returns supply-chain pin data for the given program (commit hash or per-platform digests).
+	// Returns optional.Empty when pinning is not supported (e.g. private go module).
+	GetPin(ctx context.Context, program string) (optional.Val[structs.Pin], error)
+	// Install will install the program. If pin is set, it is verified before/after installation.
+	Install(ctx context.Context, program string, pin optional.Val[structs.Pin]) error
 	Run(ctx context.Context, program string, args ...string) error
 	GetLatest(ctx context.Context, module string) (string, bool, error)
 	Remove(ctx context.Context, tool structs.Tool) error

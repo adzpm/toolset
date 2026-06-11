@@ -62,14 +62,16 @@ func Test_fetchModule(t *testing.T) {
 	}
 
 	f("with_ver", "github.com/bufbuild/buf/cmd/buf@v1.47.2", moduleInfo{
-		Mod:       prog.NewVer("github.com/bufbuild/buf/cmd/buf", "v1.47.2"),
-		Program:   "buf",
-		IsPrivate: false,
+		Mod:             prog.NewVer("github.com/bufbuild/buf/cmd/buf", "v1.47.2"),
+		Program:         "buf",
+		IsPrivate:       false,
+		ResolvedModPath: "github.com/bufbuild/buf",
 	})
 	f("v2_version", "github.com/goreleaser/goreleaser/v2@v2.5.1", moduleInfo{
-		Mod:       prog.NewVer("github.com/goreleaser/goreleaser/v2", "v2.5.1"),
-		Program:   "goreleaser",
-		IsPrivate: false,
+		Mod:             prog.NewVer("github.com/goreleaser/goreleaser/v2", "v2.5.1"),
+		Program:         "goreleaser",
+		IsPrivate:       false,
+		ResolvedModPath: "github.com/goreleaser/goreleaser/v2",
 	})
 }
 

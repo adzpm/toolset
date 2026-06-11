@@ -44,6 +44,7 @@ tasks:
       - task: "test:runtimes"
       - task: "test:ensure"
       - task: "test:ensure:gh"
+      - task: "test:pin"
       - task: "test:other"
 
   upd:dl:
@@ -148,6 +149,245 @@ tasks:
       - "{{.TOOLSET}} run buf --help"
       - "{{.TOOLSET}} run trivy --help"
       - "{{.TOOLSET}} run otel-cli --help"
+
+  test:pin:
+    desc: Run all supply-chain pin integration tests
+    cmds:
+      - task: "test:pin:go"
+      - task: "test:pin:gh"
+      - task: "test:pin:tamper:go"
+      - task: "test:pin:tamper:gh"
+      - task: "test:pin:ensure:go"
+      - task: "test:pin:ensure:gh"
+      - task: "test:pin:upgrade:go"
+      - task: "test:pin:upgrade:gh"
+
+  test:pin:go:
+    desc: "go-runtime: add --pin writes commit_hash; sync installs with commit hash verification"
+    dir: temp_tests
+    env:
+      TOOLSET_CACHE_DIR: ".cache-pin-go"
+      GITHUB_TOKEN: ""
+      GH_TOKEN: ""
+    cmds:
+      - "rm -f .toolset.json .toolset.lock.json"
+      - "rm -rf .cache-pin-go"
+      - "{{.TOOLSET}} init ."
+      - "{{.TOOLSET}} add --pin go github.com/kisielk/errcheck@v1.9.0"
+      - |
+        python3 -c "
+        import json,sys
+        s=json.load(open('.toolset.json'))
+        found=any((t.get('pin') or {}).get('commit_hash') for t in s['tools'])
+        assert found,'commit_hash not written to .toolset.json'
+        print('OK: commit_hash present in spec')
+        "
+      - "{{.TOOLSET}} sync"
+      - "{{.TOOLSET}} which errcheck"
+      - "echo 'PASS: go-runtime pin happy path'"
+
+  test:pin:gh:
+    desc: "gh-runtime: add --pin writes per-platform SHA256 digests; sync installs with archive verification"
+    dir: temp_tests
+    env:
+      TOOLSET_CACHE_DIR: ".cache-pin-gh"
+      GITHUB_TOKEN: ""
+      GH_TOKEN: ""
+    cmds:
+      - "rm -f .toolset.json .toolset.lock.json"
+      - "rm -rf .cache-pin-gh"
+      - "{{.TOOLSET}} init ."
+      - "{{.TOOLSET}} add --pin gh gotestyourself/gotestsum@v1.13.0"
+      - |
+        python3 -c "
+        import json,sys
+        s=json.load(open('.toolset.json'))
+        assets=next((t['pin']['assets'] for t in s['tools'] if (t.get('pin') or {}).get('assets')),None)
+        assert assets,'assets not written to .toolset.json'
+        assert all(a['digest'].startswith('sha256:') for a in assets),'digest not in sha256: format'
+        print(f'OK: {len(assets)} platform digests present in spec')
+        "
+      - "{{.TOOLSET}} sync"
+      - "{{.TOOLSET}} run gotestsum --version"
+      - "echo 'PASS: gh-runtime pin happy path'"
+
+  test:pin:ensure:go:
+    desc: "go-runtime: ensure --pin re-pins an existing unpinned tool; sync installs with verification"
+    dir: temp_tests
+    env:
+      TOOLSET_CACHE_DIR: ".cache-pin-ensure-go"
+      GITHUB_TOKEN: ""
+      GH_TOKEN: ""
+    cmds:
+      - "rm -f .toolset.json .toolset.lock.json"
+      - "rm -rf .cache-pin-ensure-go"
+      - "{{.TOOLSET}} init ."
+      - "{{.TOOLSET}} add go github.com/kisielk/errcheck@v1.9.0"
+      - "python3 -c \"import json; s=json.load(open('.toolset.json')); assert not any((t.get('pin') or {}).get('commit_hash') for t in s['tools']), 'pin should not be set after plain add'\""
+      - "{{.TOOLSET}} ensure --pin go github.com/kisielk/errcheck@v1.9.0"
+      - "python3 -c \"import json; s=json.load(open('.toolset.json')); found=any((t.get('pin') or {}).get('commit_hash') for t in s['tools']); assert found, 'commit_hash not written after ensure --pin'; print('OK: commit_hash present after ensure --pin')\""
+      - "{{.TOOLSET}} sync"
+      - "{{.TOOLSET}} which errcheck"
+      - "echo 'PASS: go-runtime ensure --pin happy path'"
+
+  test:pin:ensure:gh:
+    desc: "gh-runtime: ensure --pin re-pins an existing unpinned tool; sync installs with SHA256 verification"
+    dir: temp_tests
+    env:
+      TOOLSET_CACHE_DIR: ".cache-pin-ensure-gh"
+      GITHUB_TOKEN: ""
+      GH_TOKEN: ""
+    cmds:
+      - "rm -f .toolset.json .toolset.lock.json"
+      - "rm -rf .cache-pin-ensure-gh"
+      - "{{.TOOLSET}} init ."
+      - "{{.TOOLSET}} ensure gh gotestyourself/gotestsum@v1.13.0"
+      - "python3 -c \"import json; s=json.load(open('.toolset.json')); assert not any((t.get('pin') or {}).get('assets') for t in s['tools']), 'pin should not be set after plain ensure'\""
+      - "{{.TOOLSET}} ensure --pin gh gotestyourself/gotestsum@v1.13.0"
+      - "python3 -c \"import json; s=json.load(open('.toolset.json')); assets=next((t['pin']['assets'] for t in s['tools'] if (t.get('pin') or {}).get('assets')), None); assert assets and all(a['digest'].startswith('sha256:') for a in assets), 'assets not written after ensure --pin'; print(f'OK: {len(assets)} digests present after ensure --pin')\""
+      - "{{.TOOLSET}} sync"
+      - "{{.TOOLSET}} run gotestsum --version"
+      - "echo 'PASS: gh-runtime ensure --pin happy path'"
+
+  test:pin:upgrade:go:
+    desc: "go-runtime: upgrade --pin fetches latest version and writes new commit_hash; sync verifies"
+    dir: temp_tests
+    env:
+      TOOLSET_CACHE_DIR: ".cache-pin-upgrade-go"
+      GITHUB_TOKEN: ""
+      GH_TOKEN: ""
+    cmds:
+      - "rm -f .toolset.json .toolset.lock.json"
+      - "rm -rf .cache-pin-upgrade-go"
+      - "{{.TOOLSET}} init ."
+      - "{{.TOOLSET}} add --pin go github.com/kisielk/errcheck@v1.8.0"
+      - |
+        python3 -c "
+        import json
+        s=json.load(open('.toolset.json'))
+        old_hash=next(t['pin']['commit_hash'] for t in s['tools'] if (t.get('pin') or {}).get('commit_hash'))
+        open('/tmp/old_pin_hash.txt','w').write(old_hash)
+        print('old commit_hash:', old_hash[:24]+'...')
+        "
+      - "{{.TOOLSET}} upgrade --pin errcheck"
+      - |
+        python3 -c "
+        import json
+        s=json.load(open('.toolset.json'))
+        tool=next(t for t in s['tools'] if 'errcheck' in t['module'])
+        assert 'v1.8.0' not in tool['module'],'version should have been upgraded'
+        new_hash=(tool.get('pin') or {}).get('commit_hash')
+        assert new_hash,'commit_hash not written after upgrade --pin'
+        old_hash=open('/tmp/old_pin_hash.txt').read()
+        assert new_hash!=old_hash,'new pin should differ from old pin'
+        print('upgraded to:',tool['module'])
+        print('new commit_hash:',new_hash[:24]+'...')
+        print('OK: pin updated to new version hash')
+        "
+      - "{{.TOOLSET}} sync"
+      - "{{.TOOLSET}} which errcheck"
+      - "echo 'PASS: go-runtime upgrade --pin happy path'"
+
+  test:pin:upgrade:gh:
+    desc: "gh-runtime: upgrade --pin upgrades to latest version and writes new per-platform digests; sync verifies"
+    dir: temp_tests
+    env:
+      TOOLSET_CACHE_DIR: ".cache-pin-upgrade-gh"
+      GITHUB_TOKEN: ""
+      GH_TOKEN: ""
+    cmds:
+      - "rm -f .toolset.json .toolset.lock.json"
+      - "rm -rf .cache-pin-upgrade-gh"
+      - "{{.TOOLSET}} init ."
+      - "{{.TOOLSET}} add --pin gh golangci/golangci-lint@v2.4.0"
+      - |
+        python3 << 'PYEOF'
+        import json
+        s = json.load(open('.toolset.json'))
+        old_digest = next(t['pin']['assets'][0]['digest'] for t in s['tools'] if (t.get('pin') or {}).get('assets'))
+        open('/tmp/old_pin_digest.txt','w').write(old_digest)
+        print('old digest[0]:', old_digest[:36]+'...')
+        PYEOF
+      - "{{.TOOLSET}} upgrade --pin golangci-lint"
+      - |
+        python3 << 'PYEOF'
+        import json
+        s = json.load(open('.toolset.json'))
+        tool = next(t for t in s['tools'] if 'golangci-lint' in t['module'])
+        assert 'v2.4.0' not in tool['module'], 'version should have been upgraded'
+        assets = (tool.get('pin') or {}).get('assets')
+        assert assets, 'assets not written after upgrade --pin'
+        assert all(a['digest'].startswith('sha256:') for a in assets), 'bad digest format'
+        old_digest = open('/tmp/old_pin_digest.txt').read()
+        assert assets[0]['digest'] != old_digest, 'digests should differ for new version'
+        print('upgraded to:', tool['module'])
+        print(f'new digests: {len(assets)} platforms, digest[0]:', assets[0]['digest'][:36]+'...')
+        print('OK: pin updated to new version digests')
+        PYEOF
+      - "{{.TOOLSET}} sync"
+      - "{{.TOOLSET}} run golangci-lint --version"
+      - "echo 'PASS: gh-runtime upgrade --pin happy path'"
+
+  test:pin:tamper:go:
+    desc: "go-runtime: tampered commit_hash causes sync to reject installation (supply-chain attack simulation)"
+    dir: temp_tests
+    env:
+      TOOLSET_CACHE_DIR: ".cache-pin-tamper-go"
+      GITHUB_TOKEN: ""
+      GH_TOKEN: ""
+    cmds:
+      - "rm -f .toolset.json .toolset.lock.json"
+      - "rm -rf .cache-pin-tamper-go"
+      - "{{.TOOLSET}} init ."
+      - "{{.TOOLSET}} add --pin go github.com/kisielk/errcheck@v1.9.0"
+      - |
+        python3 -c "
+        import json,sys
+        with open('.toolset.json') as f:
+            spec=json.load(f)
+        changed=False
+        for t in spec['tools']:
+            p=t.get('pin') or {}
+            if p.get('commit_hash'):
+                t['pin']['commit_hash']='deadbeef'*8
+                changed=True
+        assert changed,'no commit_hash found to tamper'
+        with open('.toolset.json','w') as f:
+            json.dump(spec,f,indent=2)
+        print('OK: commit_hash tampered to deadbeef*8')
+        "
+      - "bash -c 'if {{.TOOLSET}} sync 2>&1; then echo \"FAIL: sync should have rejected tampered commit hash\"; exit 1; else echo \"PASS: sync correctly rejected tampered commit hash\"; fi'"
+
+  test:pin:tamper:gh:
+    desc: "gh-runtime: tampered asset digest causes sync to reject downloaded archive (supply-chain attack simulation)"
+    dir: temp_tests
+    env:
+      TOOLSET_CACHE_DIR: ".cache-pin-tamper-gh"
+      GITHUB_TOKEN: ""
+      GH_TOKEN: ""
+    cmds:
+      - "rm -f .toolset.json .toolset.lock.json"
+      - "rm -rf .cache-pin-tamper-gh"
+      - "{{.TOOLSET}} init ."
+      - "{{.TOOLSET}} add --pin gh gotestyourself/gotestsum@v1.13.0"
+      - |
+        python3 -c "
+        import json,sys
+        with open('.toolset.json') as f:
+            spec=json.load(f)
+        changed=False
+        for t in spec['tools']:
+            p=t.get('pin') or {}
+            if p.get('assets'):
+                for a in p['assets']:
+                    a['digest']='sha256:'+'deadbeef'*8
+                changed=True
+        assert changed,'no assets found to tamper'
+        with open('.toolset.json','w') as f:
+            json.dump(spec,f,indent=2)
+        print('OK: all asset digests tampered to sha256:deadbeef*8')
+        "
+      - "bash -c 'if {{.TOOLSET}} sync 2>&1; then echo \"FAIL: sync should have rejected tampered digest\"; exit 1; else echo \"PASS: sync correctly rejected tampered asset digest\"; fi'"
 
   test:other:
     dir: temp_tests
