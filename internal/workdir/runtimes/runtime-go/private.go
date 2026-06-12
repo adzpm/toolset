@@ -131,7 +131,12 @@ func (r *Runtime) fetchModule(ctx context.Context, link string) (*moduleInfo, er
 			return nil, fmt.Errorf("create request: %w", err)
 		}
 
-		resp, err := http.DefaultClient.Do(req)
+		client := r.httpClient
+		if client == nil {
+			client = http.DefaultClient
+		}
+
+		resp, err := client.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("get go module: %w", err)
 		}

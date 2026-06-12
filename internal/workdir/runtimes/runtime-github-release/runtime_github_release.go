@@ -24,10 +24,19 @@ const (
 	at          = "@"
 )
 
+// githubClient abstracts the GitHub API calls needed by Runtime,
+// making it easy to substitute a fake in tests.
+type githubClient interface {
+	GetAsset(ctx context.Context, owner, repo, tag string) (*github.ReleaseAsset, error)
+	DownloadAsset(ctx context.Context, owner, repo string, assetID int64, targetFile string) error
+	GetLatestRelease(ctx context.Context, owner, repo string) (*github.RepositoryRelease, error)
+	GetReleaseByTag(ctx context.Context, owner, repo, tag string) (*github.RepositoryRelease, error)
+}
+
 type Runtime struct {
 	fs         fsh.FS
 	binToolDir string
-	github     *github.Client
+	gh         githubClient
 	os, arch   string
 }
 
@@ -35,7 +44,7 @@ func New(fs fsh.FS, binToolDir string, ghClient *github.Client, goos, goarch str
 	return &Runtime{
 		fs:         fs,
 		binToolDir: binToolDir,
-		github:     ghClient,
+		gh:         &productionGithubClient{client: ghClient, fs: fs, goos: goos, goarch: goarch},
 		os:         goos,
 		arch:       goarch,
 	}
@@ -104,14 +113,14 @@ func (r *Runtime) Install(ctx context.Context, program string, pin optional.Val[
 		return fmt.Errorf("unexpected module name (%s)", mod.Mod.Name())
 	}
 
-	asset, err := r.getAsset(ctx, owner, repo, mod.Mod.Version())
+	asset, err := r.gh.GetAsset(ctx, owner, repo, mod.Mod.Version())
 	if err != nil {
 		return fmt.Errorf("get gh asset: %w", err)
 	}
 
 	tmpFile := filepath.Join(tmpDir, "download"+fsh.Ext(asset.GetName()))
 
-	if err := r.downloadAsset(ctx, owner, repo, *asset.ID, tmpFile); err != nil {
+	if err := r.gh.DownloadAsset(ctx, owner, repo, *asset.ID, tmpFile); err != nil {
 		return fmt.Errorf("download asset: %w", err)
 	}
 
@@ -265,8 +274,7 @@ func (r *Runtime) GetLatest(ctx context.Context, moduleReq string) (string, bool
 		return "", false, fmt.Errorf("unexpected module name (%s)", mod.Mod.Name())
 	}
 
-	// Get the latest release from GitHub
-	latestRelease, _, err := r.github.Repositories.GetLatestRelease(ctx, owner, repo)
+	latestRelease, err := r.gh.GetLatestRelease(ctx, owner, repo)
 	if err != nil {
 		return "", false, fmt.Errorf("get latest release: %w", err)
 	}

@@ -202,10 +202,9 @@ func (c *Workdir) Add(ctx context.Context, runtime, program string, alias option
 			return false, "", fmt.Errorf("get pin: %w", err)
 		}
 		tool.Pin = p
-		// Use UpsertTool so that re-pinning an existing tool updates the pin.
-		c.spec.Tools.UpsertTool(tool)
+		wasAdded := c.spec.Tools.UpsertTool(tool)
 		c.lock.FromSpec(c.spec)
-		return true, program, nil
+		return wasAdded, program, nil
 	}
 
 	wasAdded := c.spec.Tools.Add(tool)

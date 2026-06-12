@@ -31,7 +31,8 @@ type Runtime struct {
 	goVersion  string // ex: 1.23
 	binToolDir string
 	goCacheDir optional.Val[string]
-	httpClient *http.Client // injectable for tests; defaults to http.DefaultClient
+	httpClient *http.Client   // injectable for tests; defaults to http.DefaultClient
+	resolver   moduleResolver // injectable for tests; defaults to productionModuleResolver
 }
 
 func New(fs fsh.FS, binToolDir, goBin, goVer string, goCache optional.Val[string]) (*Runtime, error) {
@@ -41,14 +42,16 @@ func New(fs fsh.FS, binToolDir, goBin, goVer string, goCache optional.Val[string
 		}
 	}
 
-	return &Runtime{
+	r := &Runtime{
 		fs:         fs,
 		goBin:      goBin,
 		goVersion:  goVer,
 		binToolDir: binToolDir,
 		goCacheDir: goCache,
 		httpClient: http.DefaultClient,
-	}, nil
+	}
+	r.resolver = r
+	return r, nil
 }
 
 // Parse will parse string to normal version.

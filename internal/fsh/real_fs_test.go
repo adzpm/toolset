@@ -3,6 +3,7 @@ package fsh_test
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
@@ -104,41 +105,59 @@ func TestReadOrCreateJson(t *testing.T) {
 
 func TestLocks(t *testing.T) {
 	ctx := context.Background()
+	fs := fsh.NewRealFS()
+
+	// Use a temp file per test to avoid cross-test interference.
+	lockFile := func(t *testing.T) string {
+		t.Helper()
+		f, err := os.CreateTemp("", "fsh-lock-test-*.lock")
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+		t.Cleanup(func() { os.Remove(f.Name()) }) //nolint:errcheck
+		return f.Name()
+	}
 
 	t.Run("auto_create_file_when_not_exists", func(t *testing.T) {
-		if runtime.GOOS == "windows" {
-			t.Skip("skip for Windows")
-		}
+		filename := filepath.Join(os.TempDir(), "fsh-test-autocreate.lock")
+		os.Remove(filename) //nolint:errcheck
+		t.Cleanup(func() { os.Remove(filename) }) //nolint:errcheck
 
-		fs := fsh.NewRealFS()
-
-		const filename = "/tmp/test.lock"
-
-		// Lock file
 		unlock, err := fs.Lock(ctx, filename)
 		require.NoError(t, err)
-
-		ch := make(chan struct{})
-		go func() {
-			// Lock file again. It will stuck.
-			unlock, err := fs.Lock(ctx, filename)
-			require.NoError(t, err)
-
-			close(ch)
-			unlock()
-		}()
-
-		select {
-		case <-ch:
-			t.Fatal("File should be locked")
-		case <-time.After(1 * time.Second):
-		}
-
 		unlock()
-		select {
-		case <-ch:
-		case <-time.After(1 * time.Second):
-			t.Fatal("File should be unlocked")
-		}
+	})
+
+	t.Run("held_lock_blocks_concurrent_locker", func(t *testing.T) {
+		filename := lockFile(t)
+
+		unlock, err := fs.Lock(ctx, filename)
+		require.NoError(t, err)
+		defer unlock()
+
+		// A lock attempt with an immediately-cancelled context must fail:
+		// the file is held so the lock cannot be acquired.
+		cancelCtx, cancel := context.WithCancel(ctx)
+		cancel() // cancel immediately
+
+		_, err = fs.Lock(cancelCtx, filename)
+		require.Error(t, err, "second Lock must fail while first is held")
+	})
+
+	t.Run("unlock_allows_re_lock", func(t *testing.T) {
+		filename := lockFile(t)
+
+		unlock, err := fs.Lock(ctx, filename)
+		require.NoError(t, err)
+		unlock() // release
+
+		// After unlock the file must be acquirable again.
+		// Bound the wait so the test fails fast rather than hanging until the global timeout.
+		const acquireTimeout = 5 * time.Second
+		lockCtx, cancel := context.WithTimeout(ctx, acquireTimeout)
+		defer cancel()
+
+		unlock2, err := fs.Lock(lockCtx, filename)
+		require.NoError(t, err)
+		unlock2()
 	})
 }

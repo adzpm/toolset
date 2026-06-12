@@ -11,11 +11,19 @@ import (
 	"golang.org/x/mod/module"
 )
 
+// moduleResolver abstracts fetchModule so tests can inject a fake without running
+// the real go toolchain. *Runtime is the production implementation.
+type moduleResolver interface {
+	fetchModule(ctx context.Context, link string) (*moduleInfo, error)
+}
+
+var _ moduleResolver = (*Runtime)(nil)
+
 // GetPin returns the git commit hash recorded by proxy.golang.org for the given program.
 // Private modules cannot be queried via the public proxy — they return optional.Empty with
 // a warning printed to stdout.
 func (r *Runtime) GetPin(ctx context.Context, program string) (optional.Val[structs.Pin], error) {
-	mod, err := r.fetchModule(ctx, program)
+	mod, err := r.resolver.fetchModule(ctx, program)
 	if err != nil {
 		return optional.Empty[structs.Pin](), fmt.Errorf("fetch module: %w", err)
 	}

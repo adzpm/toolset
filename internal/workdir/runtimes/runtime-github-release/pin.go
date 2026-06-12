@@ -10,17 +10,6 @@ import (
 	"github.com/kazhuravlev/toolset/internal/workdir/structs"
 )
 
-// knownPlatforms is the set of OS/arch combinations checked when computing a pin.
-var knownPlatforms = [][2]string{
-	{"darwin", "arm64"},
-	{"darwin", "amd64"},
-	{"linux", "amd64"},
-	{"linux", "arm64"},
-	{"linux", "386"},
-	{"windows", "amd64"},
-	{"windows", "arm64"},
-}
-
 // GetPin fetches the GitHub release for program and records the SHA256 digest for every
 // known platform that has a matching asset. Platforms that have no matching asset are
 // skipped with a log message (DN-2). Returns an error if any matched asset has an empty
@@ -31,12 +20,10 @@ func (r *Runtime) GetPin(ctx context.Context, program string) (optional.Val[stru
 		return optional.Empty[structs.Pin](), fmt.Errorf("get module: %w", err)
 	}
 
-	owner, repo, ok := strings.Cut(mod.Mod.Name(), "/")
-	if !ok {
-		return optional.Empty[structs.Pin](), fmt.Errorf("unexpected module name (%s)", mod.Mod.Name())
-	}
+	// owner/repo is guaranteed by parse() — GetModule enforces the format.
+	owner, repo, _ := strings.Cut(mod.Mod.Name(), "/")
 
-	release, _, err := r.github.Repositories.GetReleaseByTag(ctx, owner, repo, mod.Mod.Version())
+	release, err := r.gh.GetReleaseByTag(ctx, owner, repo, mod.Mod.Version())
 	if err != nil {
 		return optional.Empty[structs.Pin](), fmt.Errorf("get release by tag: %w", err)
 	}

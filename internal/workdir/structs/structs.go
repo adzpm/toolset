@@ -89,16 +89,18 @@ func (tools *Tools) Add(tool Tool) bool {
 	return true
 }
 
-// UpsertTool will add tool if not exists or replace to the given version.
-func (tools *Tools) UpsertTool(tool Tool) {
+// UpsertTool adds the tool if it does not exist, or replaces it if it does.
+// Returns true if the tool was newly added, false if an existing entry was updated.
+func (tools *Tools) UpsertTool(tool Tool) bool {
 	for i, t := range *tools {
 		if t.IsSame(tool) {
 			(*tools)[i] = tool
-			return
+			return false
 		}
 	}
 
 	*tools = append(*tools, tool)
+	return true
 }
 
 func (tools *Tools) Filter(tags []string) Tools {
