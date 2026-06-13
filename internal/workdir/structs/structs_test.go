@@ -141,6 +141,25 @@ func TestLock_FromSpec(t *testing.T) {
 	}, lock)
 }
 
+func TestLock_FromSpec_PropagatesPin(t *testing.T) {
+	pin := structs.Pin{CommitHash: "abc123"}
+	spec := structs.Spec{
+		Tools: structs.Tools{
+			{
+				Runtime: "go",
+				Module:  "example@v1.0.0",
+				Pin:     optional.New(pin),
+			},
+		},
+	}
+	lock := structs.Lock{}
+	lock.FromSpec(&spec)
+
+	require.Len(t, lock.Tools, 1)
+	require.True(t, lock.Tools[0].Pin.HasVal())
+	require.Equal(t, pin, lock.Tools[0].Pin.Val())
+}
+
 func Tool(runtime, module string, alias optional.Val[string], tags []string) structs.Tool {
 	return structs.Tool{
 		Runtime: runtime,

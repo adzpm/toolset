@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,6 +31,8 @@ type Runtime struct {
 	goVersion  string // ex: 1.23
 	binToolDir string
 	goCacheDir optional.Val[string]
+	httpClient *http.Client   // injectable for tests; defaults to http.DefaultClient
+	resolver   moduleResolver // injectable for tests; defaults to productionModuleResolver
 }
 
 func New(fs fsh.FS, binToolDir, goBin, goVer string, goCache optional.Val[string]) (*Runtime, error) {
@@ -39,13 +42,16 @@ func New(fs fsh.FS, binToolDir, goBin, goVer string, goCache optional.Val[string
 		}
 	}
 
-	return &Runtime{
+	r := &Runtime{
 		fs:         fs,
 		goBin:      goBin,
 		goVersion:  goVer,
 		binToolDir: binToolDir,
 		goCacheDir: goCache,
-	}, nil
+		httpClient: http.DefaultClient,
+	}
+	r.resolver = r
+	return r, nil
 }
 
 // Parse will parse string to normal version.
@@ -84,7 +90,7 @@ func (r *Runtime) GetModule(ctx context.Context, module string) (*structs.Module
 	}, nil
 }
 
-func (r *Runtime) Install(ctx context.Context, program string) error {
+func (r *Runtime) Install(ctx context.Context, program string, pin optional.Val[structs.Pin]) error {
 	mod, err := r.GetModule(ctx, program)
 	if err != nil {
 		return fmt.Errorf("get go module (%s): %w", program, err)
@@ -92,6 +98,24 @@ func (r *Runtime) Install(ctx context.Context, program string) error {
 
 	if err := r.fs.MkdirAll(mod.BinDir, 0o755); err != nil {
 		return fmt.Errorf("create mod dir (%s): %w", mod.BinDir, err)
+	}
+
+	// Supply-chain verification: re-fetch commit hash from proxy and compare against pin.
+	if pin.HasVal() {
+		modInfo, err := r.fetchModule(ctx, program)
+		if err != nil {
+			return fmt.Errorf("fetch module for pin verification (%s): %w", program, err)
+		}
+
+		currentHash, err := r.fetchCommitHash(ctx, modInfo.ResolvedModPath, modInfo.Mod.Version())
+		if err != nil {
+			return fmt.Errorf("fetch commit hash for %s: %w", program, err)
+		}
+
+		if currentHash != pin.Val().CommitHash {
+			return fmt.Errorf("commit hash mismatch for %s:\n  pinned:  %s\n  current: %s",
+				program, pin.Val().CommitHash, currentHash)
+		}
 	}
 
 	cmd := exec.CommandContext(ctx, r.goBin, "install", program)

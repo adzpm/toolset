@@ -57,3 +57,4 @@ temp_tests/
 coverage.txt
 
 dist/
+.devcontainer/

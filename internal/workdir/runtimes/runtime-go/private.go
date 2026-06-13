@@ -25,8 +25,9 @@ var reVersion = regexp.MustCompile(`^go version go(\d+\.\d+(?:\.\d+)?)(?: .*|$)`
 type moduleInfo struct {
 	Mod prog.Version
 
-	Program   string // golangci-lint
-	IsPrivate bool   // depends on `go env GOPRIVATE`
+	Program         string // golangci-lint
+	IsPrivate       bool   // depends on `go env GOPRIVATE`
+	ResolvedModPath string // module root as accepted by proxy, e.g. "github.com/golangci/golangci-lint/v2"
 }
 
 // parse will parse source string and try to extract all details about mentioned golang program.
@@ -90,6 +91,9 @@ func (r *Runtime) parse(ctx context.Context, str string) (*moduleInfo, error) {
 
 type fetchedMod struct {
 	Version string `json:"Version"`
+	Origin  struct {
+		Hash string `json:"Hash"`
+	} `json:"Origin"`
 }
 
 // fetchModule will fetch the module for required version. Always returns a specific version
@@ -127,7 +131,12 @@ func (r *Runtime) fetchModule(ctx context.Context, link string) (*moduleInfo, er
 			return nil, fmt.Errorf("create request: %w", err)
 		}
 
-		resp, err := http.DefaultClient.Do(req)
+		client := r.httpClient
+		if client == nil {
+			client = http.DefaultClient
+		}
+
+		resp, err := client.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("get go module: %w", err)
 		}
@@ -156,6 +165,8 @@ func (r *Runtime) fetchModule(ctx context.Context, link string) (*moduleInfo, er
 		if err != nil {
 			return nil, fmt.Errorf("parse fetched module: %w", err)
 		}
+
+		mod2.ResolvedModPath = link
 
 		return mod2, nil
 	}

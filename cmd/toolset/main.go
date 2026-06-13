@@ -27,6 +27,7 @@ const (
 	keyInclude  = "include"
 	keyTags     = "tags"
 	keyUnused   = "unused"
+	keyPin      = "pin"
 )
 
 var flagParallel = &cli.IntFlag{
@@ -34,6 +35,11 @@ var flagParallel = &cli.IntFlag{
 	Aliases: []string{"p"},
 	Usage:   "Max parallel workers",
 	Value:   4,
+}
+
+var flagPin = &cli.BoolFlag{
+	Name:  keyPin,
+	Usage: "pin binary digest / commit hash in the lock file for supply-chain verification",
 }
 
 func main() {
@@ -102,6 +108,7 @@ At this point tool will not be installed. In order to install added tool please 
 						Usage:    "add one or more tags to this tool",
 						Required: false,
 					},
+					flagPin,
 				},
 				Args: true,
 			},
@@ -161,6 +168,7 @@ Upgrades all tools by default. Specify a module name or use --tags to filter.`,
 						Usage:    "filter tools by tags",
 						Required: false,
 					},
+					flagPin,
 				},
 				Args: true,
 			},
@@ -182,6 +190,7 @@ This does NOT install the tool. Run 'toolset sync' afterward to install.`,
 						Usage:    "filter tools by tags",
 						Required: false,
 					},
+					flagPin,
 				},
 				Args: true,
 			},
@@ -390,7 +399,9 @@ func cmdAdd(c *cli.Context, wd *workdir.Workdir) error {
 		alias.Set(aliasStr)
 	}
 
-	wasAdded, mod, err := wd.Add(ctx, runtime, module, alias, tags)
+	pin := c.Bool(keyPin)
+
+	wasAdded, mod, err := wd.Add(ctx, runtime, module, alias, tags, pin)
 	if err != nil {
 		return fmt.Errorf("add module: %w", err)
 	}
@@ -501,6 +512,7 @@ func cmdUpgrade(c *cli.Context, wd *workdir.Workdir) error {
 	maxWorkers := c.Int(keyParallel)
 	tags := c.StringSlice(keyTags)
 	module := c.Args().First()
+	pin := c.Bool(keyPin)
 
 	if module != "" && len(tags) != 0 {
 		return fmt.Errorf("can't use both module and tags")
@@ -537,7 +549,7 @@ func cmdUpgrade(c *cli.Context, wd *workdir.Workdir) error {
 		}
 	}
 
-	if err := wd.Upgrade(ctx, filter); err != nil {
+	if err := wd.Upgrade(ctx, filter, pin); err != nil {
 		return fmt.Errorf("upgrade: %w", err)
 	}
 
@@ -744,7 +756,9 @@ func cmdEnsureModuleVersion(c *cli.Context, wd *workdir.Workdir) error {
 		alias.Set(aliasStr)
 	}
 
-	mod, err := wd.Ensure(ctx, runtime, module, alias, tags)
+	pin := c.Bool(keyPin)
+
+	mod, err := wd.Ensure(ctx, runtime, module, alias, tags, pin)
 	if err != nil {
 		return fmt.Errorf("ensure module: %w", err)
 	}
